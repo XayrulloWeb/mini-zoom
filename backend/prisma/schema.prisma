@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  HOST
+  ADMIN
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  name      String?
+  role      UserRole  @default(HOST)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  meetings  Meeting[]
+}
+
+model Meeting {
+  id                  String    @id @default(uuid())
+  title               String
+  roomName            String    @unique
+  isPasswordProtected Boolean   @default(false)
+  roomPassword        String?
+
+  hostId              String
+  host                User      @relation(fields: [hostId], references: [id])
+
+  createdAt           DateTime  @default(now())
+  scheduledFor        DateTime?
+  startedAt           DateTime?
+  endedAt             DateTime?
+
+  @@index([hostId])
+}
