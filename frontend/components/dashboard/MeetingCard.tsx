@@ -29,12 +29,13 @@ export function MeetingCard({ meeting, onJoin, onFinish, actionBusy = false }: M
   const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
   const status = useMemo(() => getMeetingStatus(meeting), [meeting]);
 
-  const joinLink = `/room/${encodeURIComponent(meeting.roomName)}`;
+  const joinPath = `/room/${encodeURIComponent(meeting.roomName)}`;
   const canJoin = status !== 'finished';
   const canFinish = status === 'live' || status === 'pending' || status === 'scheduled';
 
   async function copyLink() {
     try {
+      const joinLink = `${window.location.origin}${joinPath}`;
       await navigator.clipboard.writeText(joinLink);
       setCopyState('ok');
     } catch {
