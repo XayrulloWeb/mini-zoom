@@ -1,6 +1,8 @@
-﻿import type { ReactNode } from 'react';
-import { classNames } from './utils';
+﻿"use client";
+
+import type { ReactNode } from 'react';
 import type { DashboardTab } from './types';
+import { Sidebar } from './Sidebar';
 
 type DashboardShellProps = {
   userName: string;
@@ -10,12 +12,9 @@ type DashboardShellProps = {
   onLogout: () => void;
   metrics: ReactNode;
   children: ReactNode;
+  unreadMessages?: number;
+  pendingRequests?: number;
 };
-
-const tabs: Array<{ id: DashboardTab; label: string }> = [
-  { id: 'meetings', label: 'Uchrashuvlar' },
-  { id: 'recordings', label: 'Yozuvlar' },
-];
 
 export function DashboardShell({
   userName,
@@ -25,54 +24,55 @@ export function DashboardShell({
   onLogout,
   metrics,
   children,
+  unreadMessages = 0,
+  pendingRequests = 0,
 }: DashboardShellProps) {
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100">
-      <section className="mx-auto w-full max-w-6xl rounded-3xl border border-cyan-900/40 bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-[0_0_70px_rgba(8,145,178,0.22)] md:p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-xs tracking-[0.25em] text-cyan-300">BOSHQARUV PANELI V2</p>
-            <h1 className="mt-1 text-2xl font-bold">Shaxsiy kabinet</h1>
-            <p className="mt-1 text-sm text-slate-400">Qongiroqlar, tarix va yozuvlarni boshqarish.</p>
+    <div className="flex h-screen bg-zinc-950 text-zinc-100">
+      {/* Sidebar */}
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        onLogout={onLogout}
+        userName={userName}
+        userEmail={userEmail}
+        unreadMessages={unreadMessages}
+        pendingRequests={pendingRequests}
+      />
+
+      {/* Main content */}
+      <main className="flex flex-1 flex-col overflow-hidden">
+        {/* Top bar */}
+        <header className="flex items-center justify-between border-b border-zinc-800/60 px-6 py-4 md:px-8">
+          <div className="pl-12 md:pl-0">
+            <h2 className="text-xl font-semibold text-white">
+              {activeTab === 'meetings' && 'Uchrashuvlar'}
+              {activeTab === 'recordings' && 'Tarix'}
+              {activeTab === 'friends' && "Do'stlar"}
+              {activeTab === 'chat' && 'Xabarlar'}
+              {activeTab === 'groups' && 'Guruhlar'}
+              {activeTab === 'profile' && 'Profil'}
+            </h2>
+            <p className="mt-0.5 text-sm text-zinc-500">
+              {activeTab === 'meetings' && "Video qo'ng'iroqlarni boshqaring"}
+              {activeTab === 'recordings' && "O'tgan uchrashuvlar tarixi"}
+              {activeTab === 'friends' && "Do'stlarni qo'shing va boshqaring"}
+              {activeTab === 'chat' && "Do'stlar bilan suhbatlashing"}
+              {activeTab === 'groups' && "Guruh suhbatlari"}
+              {activeTab === 'profile' && "Profil sozlamalari"}
+            </p>
           </div>
+        </header>
 
-          <div className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-2">
-            <div className="text-right text-sm">
-              <p className="font-semibold">{userName}</p>
-              <p className="text-slate-400">{userEmail}</p>
-            </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="rounded-lg border border-slate-600 px-3 py-1.5 text-sm transition hover:bg-slate-800"
-            >
-              Chiqish
-            </button>
-          </div>
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 md:px-8">
+          {/* Metrics (only on meetings tab) */}
+          {activeTab === 'meetings' && <div className="mb-6">{metrics}</div>}
+
+          {/* Tab content */}
+          {children}
         </div>
-
-        <div className="mt-5">{metrics}</div>
-
-        <div className="mt-5 flex gap-2 rounded-xl bg-slate-900/70 p-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => onTabChange(tab.id)}
-              className={classNames(
-                'rounded-lg px-4 py-2 text-sm transition',
-                activeTab === tab.id
-                  ? 'bg-cyan-500 text-slate-950'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4">{children}</div>
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,7 +23,20 @@ describe('AuthService', () => {
         {
           provide: JwtService,
           useValue: {
-            sign: jest.fn(),
+            sign: jest.fn().mockReturnValue('mock-token'),
+            verify: jest.fn(),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              const map: Record<string, string> = {
+                JWT_SECRET: 'test-jwt-secret-32-chars-long!!',
+                JWT_REFRESH_SECRET: 'test-refresh-secret-32-chars!!',
+              };
+              return map[key];
+            }),
           },
         },
       ],
@@ -35,4 +49,3 @@ describe('AuthService', () => {
     expect(service).toBeDefined();
   });
 });
-

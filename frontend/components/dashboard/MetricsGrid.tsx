@@ -1,28 +1,39 @@
-﻿import type { DashboardMetrics } from './types';
+﻿"use client";
+
+import { Video, Radio, Calendar, Archive } from 'lucide-react';
+import type { DashboardMetrics } from './types';
 
 type MetricsGridProps = {
   metrics: DashboardMetrics;
 };
 
-export function MetricsGrid({ metrics }: MetricsGridProps) {
-  const items = [
-    { label: 'Jami uchrashuvlar', value: metrics.total },
-    { label: 'Hozir jonli', value: metrics.live },
-    { label: 'Rejalashtirilgan', value: metrics.scheduled },
-    { label: 'Yozuvlar', value: metrics.recordings },
-  ];
+const metricConfig = [
+  { key: 'total' as const, label: 'Jami', icon: Video, color: 'from-indigo-500/20 to-indigo-500/5', iconColor: 'text-indigo-400', border: 'border-indigo-500/20' },
+  { key: 'live' as const, label: 'Jonli', icon: Radio, color: 'from-emerald-500/20 to-emerald-500/5', iconColor: 'text-emerald-400', border: 'border-emerald-500/20' },
+  { key: 'scheduled' as const, label: 'Rejalashtirilgan', icon: Calendar, color: 'from-amber-500/20 to-amber-500/5', iconColor: 'text-amber-400', border: 'border-amber-500/20' },
+  { key: 'recordings' as const, label: 'Yakunlangan', icon: Archive, color: 'from-purple-500/20 to-purple-500/5', iconColor: 'text-purple-400', border: 'border-purple-500/20' },
+];
 
+export function MetricsGrid({ metrics }: MetricsGridProps) {
   return (
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      {items.map((item) => (
-        <article
-          key={item.label}
-          className="rounded-xl border border-slate-800 bg-slate-900/60 p-3"
-        >
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{item.label}</p>
-          <p className="mt-1 text-2xl font-bold text-cyan-300">{item.value}</p>
-        </article>
-      ))}
-    </section>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {metricConfig.map((item) => {
+        const Icon = item.icon;
+        return (
+          <div
+            key={item.key}
+            className={`rounded-2xl border ${item.border} bg-gradient-to-br ${item.color} p-4 backdrop-blur-sm`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`rounded-lg bg-zinc-900/60 p-2 ${item.iconColor}`}>
+                <Icon className="h-4 w-4" />
+              </div>
+              <p className="text-xs font-medium text-zinc-400">{item.label}</p>
+            </div>
+            <p className="mt-3 text-3xl font-bold text-white">{metrics[item.key]}</p>
+          </div>
+        );
+      })}
+    </div>
   );
 }

@@ -8,6 +8,12 @@ type BackendAuthResponse = {
     name: string | null;
   };
   accessToken: string;
+  refreshToken: string;
+};
+
+type RefreshResponse = {
+  accessToken: string;
+  refreshToken: string;
 };
 
 function getBackendUrl(): string {
@@ -18,8 +24,34 @@ function getBackendUrl(): string {
   return backendUrl;
 }
 
+function getAuthSecret(): string {
+  const secret = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error('NEXTAUTH_SECRET is required. Set it in your .env file.');
+  }
+  return secret;
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<RefreshResponse | null> {
+  try {
+    const response = await fetch(`${getBackendUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as RefreshResponse;
+  } catch {
+    return null;
+  }
+}
+
 export const authOptions: NextAuthOptions = {
-  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'dev-auth-secret',
+  secret: getAuthSecret(),
   session: { strategy: 'jwt' },
   providers: [
     CredentialsProvider({
@@ -52,6 +84,7 @@ export const authOptions: NextAuthOptions = {
           email: data.user.email,
           name: data.user.name,
           accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
         };
       },
     }),
@@ -61,10 +94,31 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.userId = user.id;
         token.accessToken = user.accessToken;
+        token.refreshToken = user.refreshToken;
         token.name = user.name;
         token.email = user.email;
+        // Access token expires in 15 min — set expiry timestamp
+        token.accessTokenExpires = Date.now() + 14 * 60 * 1000; // 14 min buffer
       }
-      return token;
+
+      // If token hasn't expired, return it
+      if (Date.now() < (token.accessTokenExpires as number || 0)) {
+        return token;
+      }
+
+      // Token expired — try to refresh
+      const refreshed = await refreshAccessToken(token.refreshToken as string);
+      if (!refreshed) {
+        // Refresh failed — force re-login
+        return { ...token, error: 'RefreshAccessTokenError' };
+      }
+
+      return {
+        ...token,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        accessTokenExpires: Date.now() + 14 * 60 * 1000,
+      };
     },
     async session({ session, token }) {
       if (session.user) {
@@ -73,6 +127,12 @@ export const authOptions: NextAuthOptions = {
         session.user.email = token.email || session.user.email;
       }
       session.accessToken = String(token.accessToken || '');
+
+      // Signal to client that session is invalid
+      if (token.error === 'RefreshAccessTokenError') {
+        session.error = 'RefreshAccessTokenError';
+      }
+
       return session;
     },
   },

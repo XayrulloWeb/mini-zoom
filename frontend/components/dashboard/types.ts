@@ -1,4 +1,4 @@
-export type DashboardTab = 'meetings' | 'recordings';
+export type DashboardTab = 'meetings' | 'recordings' | 'friends' | 'chat' | 'groups' | 'profile';
 
 export type MeetingStatus = 'pending' | 'scheduled' | 'live' | 'finished';
 
@@ -7,6 +7,7 @@ export type Meeting = {
   title: string;
   roomName: string;
   isPasswordProtected: boolean;
+  waitingRoomEnabled?: boolean;
   hostId: string;
   createdAt: string;
   scheduledFor: string | null;
@@ -24,6 +25,7 @@ export type CreateMeetingPayload = {
   roomName?: string;
   isPasswordProtected?: boolean;
   roomPassword?: string;
+  waitingRoomEnabled?: boolean;
   scheduledFor?: string;
 };
 
@@ -38,4 +40,49 @@ export type DashboardMetrics = {
   live: number;
   scheduled: number;
   recordings: number;
+};
+
+export type Friend = {
+  friendshipId: string;
+  id: string;
+  name: string | null;
+  email: string;
+};
+
+export type FriendRequest = {
+  friendshipId: string;
+  from: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+  createdAt: string;
+};
+
+export type Conversation = {
+  friend: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+  lastMessage: {
+    text: string;
+    createdAt: string;
+    senderId: string;
+  } | null;
+  unreadCount: number;
+};
+
+export type DirectMessage = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  text: string;
+  createdAt: string;
+  read: boolean;
+  sender: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
 };

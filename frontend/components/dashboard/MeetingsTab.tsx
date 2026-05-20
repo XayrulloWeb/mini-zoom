@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useMemo, useState } from 'react';
+import { Search, RefreshCw, Filter } from 'lucide-react';
 import { MeetingCard } from './MeetingCard';
 import type { Meeting, MeetingStatus } from './types';
 import { getMeetingStatus } from './utils';
@@ -16,10 +17,10 @@ type MeetingsTabProps = {
 };
 
 const filterOptions: Array<{ value: 'all' | MeetingStatus; label: string }> = [
-  { value: 'all', label: 'Barcha holatlar' },
+  { value: 'all', label: 'Barchasi' },
+  { value: 'live', label: 'Jonli' },
   { value: 'pending', label: 'Kutilmoqda' },
   { value: 'scheduled', label: 'Rejalashtirilgan' },
-  { value: 'live', label: 'Jonli' },
   { value: 'finished', label: 'Yakunlangan' },
 ];
 
@@ -41,64 +42,66 @@ export function MeetingsTab({
 
     return meetings.filter((meeting) => {
       const status = getMeetingStatus(meeting, now);
-      if (statusFilter !== 'all' && status !== statusFilter) {
-        return false;
-      }
-
-      if (!term) {
-        return true;
-      }
-
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (!term) return true;
       return (
         meeting.title.toLowerCase().includes(term) ||
-        meeting.roomName.toLowerCase().includes(term) ||
-        meeting.host.email.toLowerCase().includes(term)
+        meeting.roomName.toLowerCase().includes(term)
       );
     });
   }, [meetings, search, statusFilter]);
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <h2 className="text-lg font-semibold">Mening uchrashuvlarim</h2>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={refreshing}
-          className="w-full rounded-lg border border-cyan-500 px-3 py-1.5 text-sm text-cyan-300 transition hover:bg-cyan-950/40 md:w-auto disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {refreshing ? 'Yangilanmoqda...' : 'Yangilash'}
-        </button>
+    <div className="space-y-4">
+      {/* Search & Filter bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Qidirish..."
+            className="w-full rounded-xl border border-zinc-800 bg-zinc-900/60 py-2.5 pl-10 pr-4 text-sm text-zinc-200 outline-none transition placeholder:text-zinc-600 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Filter className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | MeetingStatus)}
+              className="appearance-none rounded-xl border border-zinc-800 bg-zinc-900/60 py-2.5 pl-9 pr-8 text-sm text-zinc-300 outline-none transition focus:border-indigo-500/50"
+            >
+              {filterOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-2.5 text-sm text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            Yangilash
+          </button>
+        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px]">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Nomi yoki xona bo'yicha qidirish"
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none ring-cyan-400 transition focus:ring-2"
-        />
-
-        <select
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as 'all' | MeetingStatus)}
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none ring-cyan-400 transition focus:ring-2"
-        >
-          {filterOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {loading ? (
-          <p className="text-sm text-slate-400">Uchrashuvlar yuklanmoqda...</p>
-        ) : filteredMeetings.length === 0 ? (
-          <p className="text-sm text-slate-400">Uchrashuv topilmadi.</p>
-        ) : (
-          filteredMeetings.map((meeting) => (
+      {/* Meeting cards */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+        </div>
+      ) : filteredMeetings.length === 0 ? (
+        <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/30 py-12 text-center">
+          <p className="text-sm text-zinc-500">Uchrashuv topilmadi</p>
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {filteredMeetings.map((meeting) => (
             <MeetingCard
               key={meeting.id}
               meeting={meeting}
@@ -106,9 +109,9 @@ export function MeetingsTab({
               onFinish={onFinish}
               actionBusy={activeMeetingId === meeting.id}
             />
-          ))
-        )}
-      </div>
-    </section>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

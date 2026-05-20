@@ -1,4 +1,7 @@
-﻿import type { Meeting } from './types';
+﻿"use client";
+
+import { Clock, User } from 'lucide-react';
+import type { Meeting } from './types';
 import { formatDateTime, formatDuration } from './utils';
 
 type RecordingsTabProps = {
@@ -7,49 +10,53 @@ type RecordingsTabProps = {
 
 export function RecordingsTab({ meetings }: RecordingsTabProps) {
   const recordings = [...meetings]
-    .filter((meeting) => Boolean(meeting.endedAt))
-    .sort((left, right) => {
-      const leftTime = new Date(left.endedAt || '').getTime();
-      const rightTime = new Date(right.endedAt || '').getTime();
-      return rightTime - leftTime;
-    });
+    .filter((m) => Boolean(m.endedAt))
+    .sort((a, b) => new Date(b.endedAt || '').getTime() - new Date(a.endedAt || '').getTime());
 
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h2 className="text-lg font-semibold">Yozuvlar</h2>
-      <p className="mt-1 text-sm text-slate-400">
-        Yakunlangan qongiroqlar tarixi. Yozuv fayllarini LiveKit egress orqali ulash mumkin.
-      </p>
-
-      <div className="mt-4 space-y-3">
-        {recordings.length === 0 ? (
-          <p className="text-sm text-slate-400">Hali yakunlangan qongiroqlar yoq.</p>
-        ) : (
-          recordings.map((meeting) => (
-            <article
-              key={meeting.id}
-              className="rounded-xl border border-slate-700 bg-slate-900/80 p-4"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="text-base font-semibold">{meeting.title}</h3>
-                  <p className="text-sm text-slate-400">{meeting.roomName}</p>
-                </div>
-                <span className="rounded-md border border-slate-600 bg-slate-700/40 px-2 py-1 text-xs text-slate-200">
-                  Yakunlangan
-                </span>
+    <div className="space-y-4">
+      {recordings.length === 0 ? (
+        <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/30 py-16 text-center">
+          <Clock className="mx-auto h-8 w-8 text-zinc-600" />
+          <p className="mt-3 text-sm text-zinc-500">Hali yakunlangan uchrashuvlar yo&apos;q</p>
+        </div>
+      ) : (
+        recordings.map((meeting) => (
+          <div
+            key={meeting.id}
+            className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-5 transition hover:border-zinc-700/80"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-white">{meeting.title}</h3>
+                <p className="mt-0.5 font-mono text-xs text-zinc-500">{meeting.roomName}</p>
               </div>
+              <span className="rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[11px] font-medium text-zinc-400">
+                Yakunlangan
+              </span>
+            </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-300">
-                <p>Boshlangan: {formatDateTime(meeting.startedAt)}</p>
-                <p>Tugagan: {formatDateTime(meeting.endedAt)}</p>
-                <p>Davomiyligi: {formatDuration(meeting.startedAt, meeting.endedAt)}</p>
-                <p>Boshlovchi: {meeting.host.name || meeting.host.email}</p>
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">Boshlangan</p>
+                <p className="mt-0.5 text-zinc-300">{formatDateTime(meeting.startedAt)}</p>
               </div>
-            </article>
-          ))
-        )}
-      </div>
-    </section>
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">Tugagan</p>
+                <p className="mt-0.5 text-zinc-300">{formatDateTime(meeting.endedAt)}</p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-zinc-500" />
+                <span className="text-zinc-300">{formatDuration(meeting.startedAt, meeting.endedAt)}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 text-zinc-500" />
+                <span className="text-zinc-300">{meeting.host.name || meeting.host.email}</span>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
   );
 }

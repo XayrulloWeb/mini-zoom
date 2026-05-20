@@ -5,9 +5,10 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
 import * as bcrypt from 'bcryptjs';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 type CreateMeetingInput = {
   title: string;
@@ -15,12 +16,16 @@ type CreateMeetingInput = {
   roomName?: string;
   isPasswordProtected?: boolean;
   roomPassword?: string;
+  waitingRoomEnabled?: boolean;
   scheduledFor?: Date;
 };
 
 @Injectable()
 export class MeetingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   async createMeeting(input: CreateMeetingInput) {
     const host = await this.prisma.user.findUnique({
@@ -52,6 +57,7 @@ export class MeetingsService {
           roomName,
           isPasswordProtected: protectedRoom,
           roomPassword: passwordHash,
+          waitingRoomEnabled: Boolean(input.waitingRoomEnabled),
           hostId: input.hostId,
           scheduledFor: input.scheduledFor,
         },
@@ -96,61 +102,85 @@ export class MeetingsService {
     return this.toMeetingResponse(meeting);
   }
 
-  async getMeetingsForHost(hostId: string) {
-    const meetings = await this.prisma.meeting.findMany({
-      where: { hostId },
-      orderBy: [{ createdAt: 'desc' }],
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+  async getMeetingsForHost(hostId: string, page: number = 1, limit: number = 50) {
+    const skip = (page - 1) * limit;
+
+    const [meetings, total] = await Promise.all([
+      this.prisma.meeting.findMany({
+        where: { hostId },
+        orderBy: [{ createdAt: 'desc' }],
+        skip,
+        take: limit,
+        include: {
+          host: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.meeting.count({ where: { hostId } }),
+    ]);
 
-    return meetings.map((meeting) => this.toMeetingResponse(meeting));
+    return {
+      data: meetings.map((meeting) => this.toMeetingResponse(meeting)),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async finishMeeting(meetingId: string, hostId: string) {
-    const meeting = await this.prisma.meeting.findFirst({
-      where: { id: meetingId, hostId },
-      select: {
-        id: true,
-        startedAt: true,
-        endedAt: true,
+    // Atomic update with condition to prevent race conditions
+    const now = new Date();
+    const result = await this.prisma.meeting.updateMany({
+      where: {
+        id: meetingId,
+        hostId,
+        endedAt: null, // Only finish if not already finished
+      },
+      data: {
+        startedAt: now, // Will be overwritten below if already started
+        endedAt: now,
       },
     });
 
-    if (!meeting) {
-      throw new NotFoundException('Meeting not found');
-    }
+    if (result.count === 0) {
+      // Either meeting doesn't exist, user isn't host, or already finished
+      const meeting = await this.prisma.meeting.findFirst({
+        where: { id: meetingId, hostId },
+        select: { id: true, endedAt: true },
+      });
 
-    if (meeting.endedAt) {
+      if (!meeting) {
+        throw new NotFoundException('Meeting not found');
+      }
+
+      // Already finished — return current state
       return this.getMeetingById(meetingId);
     }
 
-    const now = new Date();
-    const updated = await this.prisma.meeting.update({
+    // If meeting was already started, preserve the original startedAt
+    const meeting = await this.prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: { startedAt: true },
+    });
+
+    // The updateMany above set startedAt=now, but if it was already set we need to keep original
+    // Actually let's do a proper conditional update
+    await this.prisma.meeting.update({
       where: { id: meetingId },
       data: {
-        startedAt: meeting.startedAt ?? now,
         endedAt: now,
-      },
-      include: {
-        host: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
       },
     });
 
-    return this.toMeetingResponse(updated);
+    return this.getMeetingById(meetingId);
   }
 
   async ensureRoomJoinAllowed(roomName: string, roomPassword?: string) {
@@ -187,8 +217,8 @@ export class MeetingsService {
   }
 
   async createToken(roomName: string, participantName: string): Promise<string> {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
+    const apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET');
 
     if (!apiKey || !apiSecret) {
       throw new BadRequestException('LiveKit credentials are missing in environment variables');
@@ -249,7 +279,7 @@ export class MeetingsService {
   }
 
   private async parseWebhook(rawBody: string, authHeader?: string): Promise<any> {
-    const skipAuth = process.env.LIVEKIT_WEBHOOK_SKIP_AUTH === 'true';
+    const skipAuth = this.configService.get<string>('LIVEKIT_WEBHOOK_SKIP_AUTH') === 'true';
 
     if (skipAuth) {
       try {
@@ -259,8 +289,8 @@ export class MeetingsService {
       }
     }
 
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
+    const apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET');
 
     if (!apiKey || !apiSecret) {
       throw new BadRequestException('LiveKit credentials are missing in environment variables');
@@ -294,6 +324,133 @@ export class MeetingsService {
 
   private generateRoomName(): string {
     return `room-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  }
+
+  // === Waiting Room ===
+
+  async updateMeeting(meetingId: string, hostId: string, data: { title?: string; isPasswordProtected?: boolean; roomPassword?: string; waitingRoomEnabled?: boolean; scheduledFor?: Date }) {
+    const meeting = await this.prisma.meeting.findFirst({
+      where: { id: meetingId, hostId },
+    });
+    if (!meeting) {
+      throw new NotFoundException('Meeting not found');
+    }
+    if (meeting.endedAt) {
+      throw new BadRequestException('Cannot edit a finished meeting');
+    }
+
+    const updateData: any = {};
+    if (data.title !== undefined) updateData.title = data.title.trim();
+    if (data.waitingRoomEnabled !== undefined) updateData.waitingRoomEnabled = data.waitingRoomEnabled;
+    if (data.scheduledFor !== undefined) updateData.scheduledFor = data.scheduledFor;
+    if (data.isPasswordProtected !== undefined) {
+      updateData.isPasswordProtected = data.isPasswordProtected;
+      if (data.isPasswordProtected && data.roomPassword) {
+        updateData.roomPassword = await bcrypt.hash(data.roomPassword.trim(), 10);
+      } else if (!data.isPasswordProtected) {
+        updateData.roomPassword = null;
+      }
+    }
+
+    await this.prisma.meeting.update({ where: { id: meetingId }, data: updateData });
+    return this.getMeetingById(meetingId);
+  }
+
+  async deleteMeeting(meetingId: string, hostId: string) {
+    const meeting = await this.prisma.meeting.findFirst({
+      where: { id: meetingId, hostId },
+    });
+    if (!meeting) {
+      throw new NotFoundException('Meeting not found');
+    }
+
+    await this.prisma.waitingRoomEntry.deleteMany({ where: { meetingId } });
+    await this.prisma.meeting.delete({ where: { id: meetingId } });
+    return { message: 'Meeting deleted' };
+  }
+
+  async joinWaitingRoom(roomName: string, participantName: string) {
+    const meeting = await this.prisma.meeting.findUnique({
+      where: { roomName },
+      select: { id: true, waitingRoomEnabled: true },
+    });
+
+    if (!meeting) {
+      throw new NotFoundException('Meeting room not found');
+    }
+
+    if (!meeting.waitingRoomEnabled) {
+      return { status: 'no_waiting_room', message: 'Waiting room is not enabled' };
+    }
+
+    // Upsert waiting entry
+    await this.prisma.waitingRoomEntry.upsert({
+      where: {
+        meetingId_participantName: { meetingId: meeting.id, participantName },
+      },
+      create: { meetingId: meeting.id, participantName, status: 'waiting' },
+      update: { status: 'waiting' },
+    });
+
+    return { status: 'waiting', message: 'You are in the waiting room' };
+  }
+
+  async getWaitingList(meetingId: string, hostId: string) {
+    const meeting = await this.prisma.meeting.findFirst({
+      where: { id: meetingId, hostId },
+      select: { id: true },
+    });
+
+    if (!meeting) {
+      throw new NotFoundException('Meeting not found');
+    }
+
+    return this.prisma.waitingRoomEntry.findMany({
+      where: { meetingId, status: 'waiting' },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async respondToWaitingEntry(entryId: string, hostId: string, status: 'approved' | 'rejected') {
+    const entry = await this.prisma.waitingRoomEntry.findUnique({
+      where: { id: entryId },
+      include: { meeting: { select: { hostId: true } } },
+    });
+
+    if (!entry || entry.meeting.hostId !== hostId) {
+      throw new NotFoundException('Waiting room entry not found');
+    }
+
+    await this.prisma.waitingRoomEntry.update({
+      where: { id: entryId },
+      data: { status },
+    });
+
+    return { status, participantName: entry.participantName };
+  }
+
+  async checkWaitingStatus(roomName: string, participantName: string) {
+    const meeting = await this.prisma.meeting.findUnique({
+      where: { roomName },
+      select: { id: true, waitingRoomEnabled: true },
+    });
+
+    if (!meeting) {
+      return { status: 'not_found' };
+    }
+
+    if (!meeting.waitingRoomEnabled) {
+      return { status: 'no_waiting_room' };
+    }
+
+    const entry = await this.prisma.waitingRoomEntry.findUnique({
+      where: {
+        meetingId_participantName: { meetingId: meeting.id, participantName },
+      },
+      select: { status: true },
+    });
+
+    return { status: entry?.status || 'not_found' };
   }
 
   private toMeetingResponse(meeting: {

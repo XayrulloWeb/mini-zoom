@@ -2,11 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   Param,
+  Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -14,24 +17,11 @@ import {
 import { UserRole } from '@prisma/client';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { MeetingsService } from './meetings.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
-
-type CreateMeetingBody = {
-  title?: string;
-  roomName?: string;
-  isPasswordProtected?: boolean;
-  roomPassword?: string;
-  scheduledFor?: string;
-};
-
-type JoinRoomBody = {
-  roomName?: string;
-  participantName?: string;
-  roomPassword?: string;
-};
+import { MeetingsService } from './meetings.service.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { Roles } from '../auth/roles.decorator.js';
+import { RolesGuard } from '../auth/roles.guard.js';
+import { CreateMeetingDto, JoinRoomDto, UpdateMeetingDto, WaitingRoomJoinDto, WaitingRoomRespondDto } from './dto/index.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -62,13 +52,20 @@ export class MeetingsController {
 
   @UseGuards(JwtAuthGuard)
   @Get('my')
-  async getMyMeetings(@Req() request: AuthenticatedRequest) {
+  async getMyMeetings(
+    @Req() request: AuthenticatedRequest,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     const hostId = request.user?.sub?.trim();
     if (!hostId) {
       throw new UnauthorizedException('Authenticated user is required');
     }
 
-    return this.meetingsService.getMeetingsForHost(hostId);
+    const pageNum = Math.max(1, parseInt(page || '1', 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit || '50', 10) || 50));
+
+    return this.meetingsService.getMeetingsForHost(hostId, pageNum, limitNum);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -91,42 +88,28 @@ export class MeetingsController {
   @Roles(UserRole.HOST, UserRole.ADMIN)
   @Post()
   async createMeeting(
-    @Body() body: CreateMeetingBody,
+    @Body() body: CreateMeetingDto,
     @Req() request: AuthenticatedRequest,
   ) {
-    const title = body.title?.trim();
     const hostId = request.user?.sub?.trim();
 
     if (!hostId) {
       throw new UnauthorizedException('Authenticated user is required');
     }
 
-    if (!title) {
-      throw new BadRequestException('title is required');
-    }
-
-    if (body.isPasswordProtected && !body.roomPassword?.trim()) {
-      throw new BadRequestException('roomPassword is required when isPasswordProtected=true');
-    }
-
-    let scheduledFor: Date | undefined;
-    if (body.scheduledFor) {
-      scheduledFor = new Date(body.scheduledFor);
-      if (Number.isNaN(scheduledFor.getTime())) {
-        throw new BadRequestException('scheduledFor must be a valid ISO date');
-      }
-    }
-
     return this.meetingsService.createMeeting({
-      title,
+      title: body.title.trim(),
       hostId,
       roomName: body.roomName?.trim(),
       isPasswordProtected: body.isPasswordProtected,
       roomPassword: body.roomPassword?.trim(),
-      scheduledFor,
+      waitingRoomEnabled: body.waitingRoomEnabled,
+      scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : undefined,
     });
   }
 
+  // Protected — only authenticated users can view meeting details
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async getMeeting(@Param('id') id: string) {
     if (!id?.trim()) {
@@ -137,24 +120,44 @@ export class MeetingsController {
   }
 
   @Post('join')
-  @Throttle({ default: { limit: 40, ttl: 60_000 } })
-  async joinRoom(@Body() body: JoinRoomBody) {
-    const roomName = body.roomName?.trim();
-    const participantName = body.participantName?.trim();
-    const roomPassword = body.roomPassword?.trim();
-
-    if (!roomName || !participantName) {
-      throw new BadRequestException('roomName and participantName are required');
-    }
-
-    await this.meetingsService.ensureRoomJoinAllowed(roomName, roomPassword);
-    const token = await this.meetingsService.createToken(roomName, participantName);
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async joinRoom(@Body() body: JoinRoomDto) {
+    await this.meetingsService.ensureRoomJoinAllowed(body.roomName.trim(), body.roomPassword?.trim());
+    const token = await this.meetingsService.createToken(body.roomName.trim(), body.participantName.trim());
 
     return {
       token,
-      roomName,
+      roomName: body.roomName.trim(),
       livekitUrl: process.env.LIVEKIT_URL,
     };
+  }
+
+  // === Edit / Delete ===
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Patch(':id')
+  async updateMeeting(
+    @Param('id') id: string,
+    @Body() body: UpdateMeetingDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const hostId = this.getHostId(request);
+    return this.meetingsService.updateMeeting(id, hostId, {
+      title: body.title,
+      isPasswordProtected: body.isPasswordProtected,
+      roomPassword: body.roomPassword,
+      waitingRoomEnabled: body.waitingRoomEnabled,
+      scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : undefined,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Delete(':id')
+  async deleteMeeting(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    const hostId = this.getHostId(request);
+    return this.meetingsService.deleteMeeting(id, hostId);
   }
 
   private extractRawBody(request: Request, parsedBody: unknown): string {
@@ -173,5 +176,45 @@ export class MeetingsController {
     }
 
     return JSON.stringify(parsedBody || {});
+  }
+
+  // === Waiting Room ===
+
+  @Post('waiting-room/join')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async joinWaitingRoom(@Body() body: WaitingRoomJoinDto) {
+    return this.meetingsService.joinWaitingRoom(body.roomName.trim(), body.participantName.trim());
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/waiting-room')
+  async getWaitingList(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    const hostId = this.getHostId(request);
+    return this.meetingsService.getWaitingList(id, hostId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('waiting-room/:entryId/respond')
+  async respondToWaiting(
+    @Param('entryId') entryId: string,
+    @Body() body: WaitingRoomRespondDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    const hostId = this.getHostId(request);
+    return this.meetingsService.respondToWaitingEntry(entryId, hostId, body.status);
+  }
+
+  @Get('waiting-room/status/:roomName/:participantName')
+  async checkWaitingStatus(
+    @Param('roomName') roomName: string,
+    @Param('participantName') participantName: string,
+  ) {
+    return this.meetingsService.checkWaitingStatus(roomName, participantName);
+  }
+
+  private getHostId(req: AuthenticatedRequest): string {
+    const hostId = req.user?.sub?.trim();
+    if (!hostId) throw new UnauthorizedException('Authenticated user is required');
+    return hostId;
   }
 }

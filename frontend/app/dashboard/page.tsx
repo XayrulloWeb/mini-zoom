@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
+import { useToast } from '@/components/ui/Toast';
 import {
   createMeeting,
   fetchMyMeetings,
@@ -15,6 +16,11 @@ import { DashboardShell } from '@/components/dashboard/DashboardShell';
 import { MeetingsTab } from '@/components/dashboard/MeetingsTab';
 import { MetricsGrid } from '@/components/dashboard/MetricsGrid';
 import { RecordingsTab } from '@/components/dashboard/RecordingsTab';
+import { FriendsTab } from '@/components/dashboard/FriendsTab';
+import { ChatTab } from '@/components/dashboard/ChatTab';
+import { GroupsTab } from '@/components/dashboard/GroupsTab';
+import { ProfileTab } from '@/components/dashboard/ProfileTab';
+import { SkeletonList, SkeletonMetrics } from '@/components/dashboard/Skeleton';
 import type {
   CreateMeetingPayload,
   DashboardMetrics,
@@ -26,6 +32,7 @@ import { getMeetingStatus } from '@/components/dashboard/utils';
 export default function DashboardPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  const toast = useToast();
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('meetings');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -52,9 +59,10 @@ export default function DashboardPage() {
 
       try {
         const data = await fetchMyMeetings(accessToken);
-        setMeetings(data);
+        setMeetings(Array.isArray(data) ? data : []);
       } catch (error) {
         setPageError(error instanceof Error ? error.message : "Uchrashuvlarni yuklab bo'lmadi");
+        setMeetings([]);
       } finally {
         setLoadingMeetings(false);
         setRefreshingMeetings(false);
@@ -133,6 +141,7 @@ export default function DashboardPage() {
     try {
       await createMeeting(accessToken, payload);
       await loadMeetings('refresh');
+      toast.success('Uchrashuv yaratildi!');
     } finally {
       setCreatingMeeting(false);
     }
@@ -148,8 +157,9 @@ export default function DashboardPage() {
     try {
       await finishMeeting(accessToken, meetingId);
       await loadMeetings('refresh');
+      toast.success('Uchrashuv yakunlandi');
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : "Qo'ng'iroqni yakunlab bo'lmadi");
+      toast.error(error instanceof Error ? error.message : "Qo'ng'iroqni yakunlab bo'lmadi");
     } finally {
       setActiveMeetingId(null);
     }
@@ -157,12 +167,26 @@ export default function DashboardPage() {
 
   function handleJoinRoom(roomName: string) {
     router.push(`/room/${encodeURIComponent(roomName)}`);
+    toast.info("Xonaga yo'naltirilmoqda...");
+  }
+
+  // If refresh token expired, force re-login
+  if (session?.error === 'RefreshAccessTokenError') {
+    signOut({ callbackUrl: '/dashboard' });
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        Sessiya muddati tugadi. Qayta kirish...
+      </main>
+    );
   }
 
   if (status === 'loading') {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
-        Sessiya tekshirilmoqda...
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+          <span>Sessiya tekshirilmoqda...</span>
+        </div>
       </main>
     );
   }
@@ -173,7 +197,7 @@ export default function DashboardPage() {
 
   if (!session) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
         Sessiya mavjud emas.
       </main>
     );
@@ -189,30 +213,42 @@ export default function DashboardPage() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
       onLogout={() => signOut({ callbackUrl: '/dashboard' })}
-      metrics={<MetricsGrid metrics={metrics} />}
+      metrics={loadingMeetings ? <SkeletonMetrics /> : <MetricsGrid metrics={metrics} />}
     >
       {pageError ? (
-        <div className="mb-3 rounded-lg border border-rose-700 bg-rose-950/30 px-3 py-2 text-sm text-rose-300">
+        <div className="mb-4 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-400">
           {pageError}
         </div>
       ) : null}
 
       {activeTab === 'meetings' ? (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+        <div className="space-y-4">
           <CreateMeetingForm onCreate={handleCreateMeeting} busy={creatingMeeting} />
-          <MeetingsTab
-            meetings={meetings}
-            loading={loadingMeetings}
-            refreshing={refreshingMeetings}
-            activeMeetingId={activeMeetingId}
-            onRefresh={() => loadMeetings('refresh')}
-            onJoin={handleJoinRoom}
-            onFinish={handleFinishMeeting}
-          />
+          {loadingMeetings ? (
+            <SkeletonList count={4} />
+          ) : (
+            <MeetingsTab
+              meetings={meetings}
+              loading={false}
+              refreshing={refreshingMeetings}
+              activeMeetingId={activeMeetingId}
+              onRefresh={() => loadMeetings('refresh')}
+              onJoin={handleJoinRoom}
+              onFinish={handleFinishMeeting}
+            />
+          )}
         </div>
-      ) : (
+      ) : activeTab === 'recordings' ? (
         <RecordingsTab meetings={meetings} />
-      )}
+      ) : activeTab === 'friends' ? (
+        <FriendsTab accessToken={accessToken} />
+      ) : activeTab === 'chat' ? (
+        <ChatTab accessToken={accessToken} currentUserId={session.user?.id || ''} />
+      ) : activeTab === 'groups' ? (
+        <GroupsTab accessToken={accessToken} currentUserId={session.user?.id || ''} />
+      ) : activeTab === 'profile' ? (
+        <ProfileTab accessToken={accessToken} currentUserId={session.user?.id || ''} onLogout={() => signOut({ callbackUrl: '/dashboard' })} />
+      ) : null}
     </DashboardShell>
   );
 }

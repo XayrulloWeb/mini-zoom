@@ -13,6 +13,12 @@ enum UserRole {
   ADMIN
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 model User {
   id        String    @id @default(uuid())
   email     String    @unique
@@ -23,6 +29,14 @@ model User {
   updatedAt DateTime  @updatedAt
 
   meetings  Meeting[]
+
+  // Friendships
+  sentFriendRequests     Friendship[] @relation("FriendshipSender")
+  receivedFriendRequests Friendship[] @relation("FriendshipReceiver")
+
+  // Direct messages
+  sentMessages     DirectMessage[] @relation("MessageSender")
+  receivedMessages DirectMessage[] @relation("MessageReceiver")
 }
 
 model Meeting {
@@ -31,6 +45,7 @@ model Meeting {
   roomName            String    @unique
   isPasswordProtected Boolean   @default(false)
   roomPassword        String?
+  waitingRoomEnabled  Boolean   @default(false)
 
   hostId              String
   host                User      @relation(fields: [hostId], references: [id])
@@ -40,5 +55,84 @@ model Meeting {
   startedAt           DateTime?
   endedAt             DateTime?
 
+  waitingList         WaitingRoomEntry[]
+
   @@index([hostId])
+}
+
+model Friendship {
+  id         String           @id @default(uuid())
+  senderId   String
+  receiverId String
+  status     FriendshipStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  sender   User @relation("FriendshipSender", fields: [senderId], references: [id])
+  receiver User @relation("FriendshipReceiver", fields: [receiverId], references: [id])
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId])
+}
+
+model DirectMessage {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String
+  text       String
+  createdAt  DateTime @default(now())
+  read       Boolean  @default(false)
+
+  sender   User @relation("MessageSender", fields: [senderId], references: [id])
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  @@index([senderId, receiverId])
+  @@index([receiverId, read])
+}
+
+model WaitingRoomEntry {
+  id              String   @id @default(uuid())
+  meetingId       String
+  participantName String
+  status          String   @default("waiting") // waiting | approved | rejected
+  createdAt       DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+
+  @@unique([meetingId, participantName])
+  @@index([meetingId, status])
+}
+
+model GroupChat {
+  id        String   @id @default(uuid())
+  name      String
+  creatorId String
+  createdAt DateTime @default(now())
+
+  members  GroupMember[]
+  messages GroupMessage[]
+}
+
+model GroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  group GroupChat @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model GroupMessage {
+  id        String   @id @default(uuid())
+  groupId   String
+  senderId  String
+  text      String
+  createdAt DateTime @default(now())
+
+  group GroupChat @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, createdAt])
 }
