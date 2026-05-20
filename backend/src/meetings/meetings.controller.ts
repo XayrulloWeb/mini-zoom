@@ -21,7 +21,7 @@ import { MeetingsService } from './meetings.service.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
-import { CreateMeetingDto, JoinRoomDto, UpdateMeetingDto, WaitingRoomJoinDto, WaitingRoomRespondDto } from './dto/index.js';
+import { CreateMeetingDto, JoinRoomDto, UpdateMeetingDto, WaitingRoomJoinDto, WaitingRoomRespondDto, MuteParticipantDto, KickParticipantDto } from './dto/index.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -123,13 +123,41 @@ export class MeetingsController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async joinRoom(@Body() body: JoinRoomDto) {
     await this.meetingsService.ensureRoomJoinAllowed(body.roomName.trim(), body.roomPassword?.trim());
-    const token = await this.meetingsService.createToken(body.roomName.trim(), body.participantName.trim());
+    const token = await this.meetingsService.createToken(body.roomName.trim(), body.participantName.trim(), false);
 
     return {
       token,
       roomName: body.roomName.trim(),
       livekitUrl: process.env.LIVEKIT_URL,
     };
+  }
+
+  // === Room Control (Moderation) ===
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/participants')
+  async getParticipants(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    this.getHostId(request); // verify auth
+    const meeting = await this.meetingsService.getMeetingById(id);
+    return this.meetingsService.getParticipants(meeting.roomName);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Post(':id/mute')
+  async muteParticipant(@Param('id') id: string, @Body() body: MuteParticipantDto, @Req() request: AuthenticatedRequest) {
+    this.getHostId(request);
+    const meeting = await this.meetingsService.getMeetingById(id);
+    return this.meetingsService.muteParticipant(meeting.roomName, body.participantIdentity, body.trackSid, body.muted);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Post(':id/kick')
+  async kickParticipant(@Param('id') id: string, @Body() body: KickParticipantDto, @Req() request: AuthenticatedRequest) {
+    this.getHostId(request);
+    const meeting = await this.meetingsService.getMeetingById(id);
+    return this.meetingsService.kickParticipant(meeting.roomName, body.participantIdentity);
   }
 
   // === Edit / Delete ===

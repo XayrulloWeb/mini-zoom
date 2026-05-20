@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -216,7 +216,7 @@ export class MeetingsService {
     }
   }
 
-  async createToken(roomName: string, participantName: string): Promise<string> {
+  async createToken(roomName: string, participantName: string, isHost = false): Promise<string> {
     const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
     const apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET');
 
@@ -234,6 +234,9 @@ export class MeetingsService {
       room: roomName,
       canPublish: true,
       canSubscribe: true,
+      canPublishData: true,
+      // Host gets admin rights (can mute/kick via client SDK too)
+      roomAdmin: isHost,
     });
 
     return at.toJwt();
@@ -324,6 +327,50 @@ export class MeetingsService {
 
   private generateRoomName(): string {
     return `room-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  }
+
+  // === Room Control (Moderation) ===
+
+  private getRoomService(): RoomServiceClient {
+    const apiKey = this.configService.get<string>('LIVEKIT_API_KEY');
+    const apiSecret = this.configService.get<string>('LIVEKIT_API_SECRET');
+    const livekitUrl = this.configService.get<string>('LIVEKIT_URL');
+
+    if (!apiKey || !apiSecret || !livekitUrl) {
+      throw new BadRequestException('LiveKit credentials are missing');
+    }
+
+    // Convert wss:// to https:// for REST API
+    const httpUrl = livekitUrl.replace('wss://', 'https://').replace('ws://', 'http://');
+    return new RoomServiceClient(httpUrl, apiKey, apiSecret);
+  }
+
+  async getParticipants(roomName: string) {
+    const roomService = this.getRoomService();
+    const participants = await roomService.listParticipants(roomName);
+    return participants.map((p) => ({
+      identity: p.identity,
+      name: p.name,
+      joinedAt: p.joinedAt ? Number(p.joinedAt) : null,
+      tracks: p.tracks?.map((t) => ({
+        sid: t.sid,
+        type: t.type,
+        source: t.source,
+        muted: t.muted,
+      })) || [],
+    }));
+  }
+
+  async muteParticipant(roomName: string, participantIdentity: string, trackSid: string, muted: boolean) {
+    const roomService = this.getRoomService();
+    await roomService.mutePublishedTrack(roomName, participantIdentity, trackSid, muted);
+    return { success: true, muted };
+  }
+
+  async kickParticipant(roomName: string, participantIdentity: string) {
+    const roomService = this.getRoomService();
+    await roomService.removeParticipant(roomName, participantIdentity);
+    return { success: true, kicked: participantIdentity };
   }
 
   // === Waiting Room ===

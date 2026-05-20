@@ -194,9 +194,7 @@ export class AuthService {
       throw new UnauthorizedException('Password is incorrect');
     }
 
-    // Delete user's data
-    await this.prisma.directMessage.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } });
-    await this.prisma.friendship.deleteMany({ where: { OR: [{ senderId: userId }, { receiverId: userId }] } });
+    // Cascade delete handles messages, friendships, group memberships
     await this.prisma.waitingRoomEntry.deleteMany({ where: { meeting: { hostId: userId } } });
     await this.prisma.meeting.deleteMany({ where: { hostId: userId } });
     await this.prisma.user.delete({ where: { id: userId } });

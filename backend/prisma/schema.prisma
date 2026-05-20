@@ -68,8 +68,8 @@ model Friendship {
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
 
-  sender   User @relation("FriendshipSender", fields: [senderId], references: [id])
-  receiver User @relation("FriendshipReceiver", fields: [receiverId], references: [id])
+  sender   User @relation("FriendshipSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("FriendshipReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@unique([senderId, receiverId])
   @@index([receiverId])
@@ -83,8 +83,8 @@ model DirectMessage {
   createdAt  DateTime @default(now())
   read       Boolean  @default(false)
 
-  sender   User @relation("MessageSender", fields: [senderId], references: [id])
-  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id])
+  sender   User @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@index([senderId, receiverId])
   @@index([receiverId, read])

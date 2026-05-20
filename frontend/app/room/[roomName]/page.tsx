@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { LiveKitRoom, VideoConference, RoomAudioRenderer } from '@livekit/components-react';
 import '@livekit/components-styles';
 import { ChatPanel } from '@/components/room/ChatPanel';
+import { HostControls } from '@/components/room/HostControls';
 
 function parseErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== 'object') {
@@ -38,6 +39,7 @@ export default function RoomPage() {
   const [error, setError] = useState('');
   const [disconnected, setDisconnected] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [hostPanelOpen, setHostPanelOpen] = useState(false);
 
   const joinRoom = async () => {
     setError('');
@@ -199,7 +201,19 @@ export default function RoomPage() {
         <VideoConference />
         <RoomAudioRenderer />
 
-        {/* Chat toggle button */}
+        {/* Host controls button (left side) */}
+        <button
+          onClick={() => setHostPanelOpen((v) => !v)}
+          className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500 text-white shadow-lg transition hover:bg-indigo-400 hover:scale-105"
+          aria-label="Boshqaruv paneli"
+          title="Ishtirokchilarni boshqarish"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+          </svg>
+        </button>
+
+        {/* Chat toggle button (right side) */}
         <button
           onClick={() => setChatOpen((v) => !v)}
           className="fixed bottom-4 right-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-cyan-500 text-slate-950 shadow-lg transition hover:bg-cyan-400 hover:scale-105"
@@ -212,6 +226,14 @@ export default function RoomPage() {
 
         {/* Chat panel */}
         <ChatPanel isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+        {/* Host controls panel */}
+        <HostControls
+          meetingId=""
+          accessToken=""
+          isOpen={hostPanelOpen}
+          onClose={() => setHostPanelOpen(false)}
+        />
       </div>
     </LiveKitRoom>
   );
